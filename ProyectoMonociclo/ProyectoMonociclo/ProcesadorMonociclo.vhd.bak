@@ -1,0 +1,234 @@
+LIBRARY IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.std_logic_unsigned.all;
+use IEEE.std_logic_arith.all;
+
+LIBRARY work;
+
+entity ProcesadorMonociclo is
+port
+(
+	Clock: in std_logic;
+	Pulsadores: in std_logic_vector(3 downto 0);
+	Switches: in std_logic_vector(3 downto 0);
+	Segmentos1: out std_logic_vector(6 downto 0);
+	Segmentos2: out std_logic_vector(6 downto 0);
+	Segmentos3: out std_logic_vector(6 downto 0);
+	Segmentos4: out std_logic_vector(6 downto 0)
+);
+end entity;
+
+architecture ProcesadorMonociclo of ProcesadorMonociclo is
+
+--Control
+signal RegDst: std_logic;
+signal Is_Jump: std_logic;
+signal Branch: std_logic;
+signal MemRead: std_logic;
+signal MemtoReg: std_logic;
+signal ALUOp: std_logic_vector(1 downto 0);
+signal MemWrite: std_logic;
+signal ALUSrc: std_logic;
+signal RegWrite: std_logic;
+
+--PC
+signal PCLectura: std_logic_vector(31 downto 0);
+signal PCSiguiente: std_logic_vector(31 downto 0);
+
+--InstructionMemory
+signal Instruction: std_logic_vector(31 downto 0);
+
+--DataMemory
+signal ReadData: std_logic_vector(31 downto 0);
+
+--SignExtend
+signal ConstanteOut: std_logic_vector(31 downto 0);
+
+--JumpBox
+signal JumpOut:std_logic_vector(31 downto 0);
+
+--ShiftLeft2 Branch
+signal DirSalto: std_logic_vector(31 downto 0);
+
+--RegisterFile
+signal Reg_Clock: std_logic;
+signal WriteRegister: std_logic_vector(4 downto 0);
+signal WriteData: std_logic_vector(31 downto 0);
+signal ReadData1: std_logic_vector(31 downto 0);
+signal ReadData2: std_logic_vector(31 downto 0);
+
+--ALU
+signal Zero: std_logic;
+signal ResultadoALU: std_logic_vector(31 downto 0);
+signal Valor2: std_logic_vector(31 downto 0);
+
+--AdderPC
+signal CuatroBits: std_logic_vector(31 downto 0);
+signal PCSumado4: std_logic_vector(31 downto 0);
+
+--AdderBranch
+signal SaltoCalc: std_logic_vector(31 downto 0);
+
+--MUXBranch
+signal SelectorMUXBranch: std_logic;
+signal PCorBranch: std_logic_vector(31 downto 0); 
+
+begin
+
+PC: entity work.PC(PC)
+port map
+(
+	Clock => Clock,
+	PCOut => PCLectura,
+	PCIn => PCSiguiente
+);
+
+AdderPC: entity work.Adder(Adder)
+port map
+(
+	Valor1IN => PCLectura,
+	Valor2IN => CuatroBits,
+	ValorSalida => PCSumado4
+);
+
+AdderBranch: entity work.Adder(Adder)
+port map
+(
+	Valor1IN => PCSumado4,
+	Valor2IN => DirSalto,
+	ValorSalida => SaltoCalc
+);
+
+InstructionMemory: entity work.InstructionMemory(InstructionMemory)
+port map
+(
+	Address => PCLectura,
+	Instruction => Instruction
+);
+
+ANDBranch: entity work.ANDBranch(ANDBranch)
+port map
+(
+	Branch => Branch,
+	Zero => Zero,
+	Salida => SelectorMUXBranch
+);
+
+MUXBranch: entity work.MUX(MUX)
+port map
+(
+	Sel => SelectorMUXBranch,
+	Entrada0 => PCSumado4,
+	Entrada1 => SaltoCalc,
+	Salida => PCorBranch
+);
+
+ShiftLeft2Jump: entity work.Jump(Jump)
+port map
+(
+	JumpField => Instruction(25 downto 0),
+	PC => PCorBranch,
+	JumpOut => JumpOut
+);
+
+MUXJumpBranch: entity work.MUX(MUX)
+port map
+(
+	Sel => Is_Jump,
+	Entrada0 => PCorBranch,
+	Entrada1 => JumpOut,
+	Salida => PCSiguiente
+);
+
+Control: entity work.Control(Control)
+port map
+(
+	Opcode => Instruction(31 downto 26),
+	Funct => Instruction(5 downto 0),
+	RegDst => RegDst,
+	Jump => Is_Jump,
+	Branch => Branch,
+	MemRead => MemRead,
+	MemtoReg => MemtoReg,
+	ALUOp => AluOp,
+	MemWrite => MemWrite,
+	ALUSrc => ALUSrc,
+	RegWrite => RegWrite
+);
+
+ShiftLeftBranch: entity work.ShiftLeft(ShiftLeft)
+port map
+(
+	Entrada => ConstanteOut,
+	Salida => DirSalto
+);
+
+SignExt: entity work.SignExtend(SignExtend)
+port map
+(
+	Constante => Instruction(15 downto 0),
+	ConstanteOut => ConstanteOut
+);
+
+MUXRF: entity work.MUXRF(MUXRF)
+port map
+(
+	RegDst => RegDst,
+	RT => Instruction(20 downto 16),
+	RD => Instruction(15 downto 11),
+	WriteRegister => WriteRegister
+);
+
+RegisterFile: entity work.RegisterFile(RegisterFile)
+port map
+(
+	Clock => Clock,
+	RegWrite => RegWrite,
+	WriteRegister => WriteRegister,
+	ReadRegister1 => Instruction(25 downto 21),
+	ReadRegister2 => Instruction(20 downto 16),
+	WriteData => WriteData,
+	ReadData1 => ReadData1,
+	ReadData2 => ReadData2
+);
+
+MUXALU: entity work.MUX(MUX)
+port map
+(
+	Sel => AluSrc,
+	Entrada0 => ReadData2,
+	Entrada1 => ConstanteOut,
+	Salida => Valor2
+);
+
+ALU: entity work.ALU(ALU)
+port map
+(
+	Valor1 => ReadData1,
+	Valor2 => Valor2,
+	AluOp => AluOp,
+	Resultado => ResultadoALU,
+	Zero => Zero
+);
+
+DataMemory: entity work.DataMemory(DataMemory)
+port map
+(
+	Clock => Clock,
+	MemWrite => MemWrite,
+	WriteData => ReadData2,
+	Address => ResultadoALU,
+	ReadData => ReadData
+);
+
+MUXRAM: entity work.MUX(MUX)
+port map
+(
+	Sel => MemtoReg,
+	Entrada0 => ResultadoALU,
+	Entrada1 => ReadData,
+	Salida => WriteData
+);
+end architecture;
+
+
